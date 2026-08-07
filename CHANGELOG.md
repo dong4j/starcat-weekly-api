@@ -5,6 +5,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.0.0] - 2026-08-07
+
+### Changed
+- 导出可装配 `server` 包；依赖 `starcat-api-kit`。
+- `internal/github` 改为 kit 薄包装；`/api/v1/ping` 改用 kit httputil。
+
 ## [Unreleased]
 
 ### Added
