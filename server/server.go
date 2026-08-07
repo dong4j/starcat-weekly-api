@@ -9,12 +9,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	kitenv "github.com/starcat-app/starcat-api-kit/env"
 	"github.com/starcat-app/starcat-weekly-api/internal/discovery"
 	"github.com/starcat-app/starcat-weekly-api/internal/github"
 	"github.com/starcat-app/starcat-weekly-api/internal/handler"
@@ -66,12 +65,12 @@ func DefaultPort() string { return defaultPort }
 // FromEnv 从环境变量装配服务（与历史 cmd/server 行为一致）。
 // 配置缺失时返回 error，由调用方决定如何记录/退出（不在此 log.Fatal）。
 func FromEnv() (*Service, error) {
-	apiKeys, err := requiredListEnv("API_KEYS")
+	apiKeys, err := kitenv.RequiredCSV("API_KEYS")
 	if err != nil {
 		return nil, fmt.Errorf("API_KEYS env is required (comma-separated list of valid API keys)")
 	}
 
-	adminKeys := splitNonEmpty(os.Getenv("ADMIN_API_KEYS"))
+	adminKeys := kitenv.LookupCSV("ADMIN_API_KEYS")
 	if len(adminKeys) == 0 {
 		log.Println("[auth] ADMIN_API_KEYS not configured; source sync, imports, batch status, and pins are disabled")
 	}
@@ -82,18 +81,18 @@ func FromEnv() (*Service, error) {
 	}
 
 	opt := Options{
-		Port:                 envOrDefault("PORT", defaultPort),
-		DBPath:               envOrDefault("STORE_FILE", "weekly.db"),
-		RepoDir:              envOrDefault("REPO_DIR", ".weekly-repo"),
+		Port:                 kitenv.OrDefault("PORT", defaultPort),
+		DBPath:               kitenv.OrDefault("STORE_FILE", "weekly.db"),
+		RepoDir:              kitenv.OrDefault("REPO_DIR", ".weekly-repo"),
 		APIKeys:              apiKeys,
 		AdminAPIKeys:         adminKeys,
 		GithubTokens:         githubTokens,
-		DiscoveryHNLim:       envInt("DISCOVERY_HN_LIMIT", 30),
-		HelloGitHubMaxPages:  envInt("HELLOGITHUB_FEATURED_MAX_PAGES", 3),
-		DiscoveryCron:        envOrDefault("DISCOVERY_CRON", "17 * * * *"),
-		HelloGitHubCron:      envOrDefault("HELLOGITHUB_CRON", "31 6 * * *"),
-		HelloGitHubReconcile: envOrDefault("HELLOGITHUB_RECONCILE_CRON", "29 7 29 * *"),
-		ZreadTrendingCron:    envOrDefault("ZREAD_TRENDING_CRON", "0 6 * * *"),
+		DiscoveryHNLim:       kitenv.Int("DISCOVERY_HN_LIMIT", 30),
+		HelloGitHubMaxPages:  kitenv.Int("HELLOGITHUB_FEATURED_MAX_PAGES", 3),
+		DiscoveryCron:        kitenv.OrDefault("DISCOVERY_CRON", "17 * * * *"),
+		HelloGitHubCron:      kitenv.OrDefault("HELLOGITHUB_CRON", "31 6 * * *"),
+		HelloGitHubReconcile: kitenv.OrDefault("HELLOGITHUB_RECONCILE_CRON", "29 7 29 * *"),
+		ZreadTrendingCron:    kitenv.OrDefault("ZREAD_TRENDING_CRON", "0 6 * * *"),
 	}
 	return New(opt)
 }
@@ -232,66 +231,12 @@ func (svc *Service) Close() error {
 }
 
 func githubTokensFromEnv() ([]string, error) {
-	tokensStr := os.Getenv("GITHUB_TOKENS")
-	if tokensStr != "" {
-		return strings.Split(tokensStr, ","), nil
+	if tokens := kitenv.LookupCSV("GITHUB_TOKENS"); len(tokens) > 0 {
+		return tokens, nil
 	}
-	if old := os.Getenv("GITHUB_TOKEN"); old != "" {
+	if old := kitenv.OrDefault("GITHUB_TOKEN", ""); old != "" {
 		log.Println("[token-pool] migrating legacy GITHUB_TOKEN to GITHUB_TOKENS (single token)")
 		return []string{old}, nil
 	}
 	return nil, fmt.Errorf("GITHUB_TOKENS or GITHUB_TOKEN env required (at least 1 GitHub PAT)")
-}
-
-func lookupRequiredEnv(key string) (string, error) {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value == "" {
-		return "", fmt.Errorf("%s env is required", key)
-	}
-	return value, nil
-}
-
-func requiredListEnv(key string) ([]string, error) {
-	raw, err := lookupRequiredEnv(key)
-	if err != nil {
-		return nil, err
-	}
-	parts := strings.Split(raw, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			out = append(out, p)
-		}
-	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("%s env is required", key)
-	}
-	return out, nil
-}
-
-func envOrDefault(key, fallback string) string {
-	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
-		return value
-	}
-	return fallback
-}
-
-func envInt(key string, fallback int) int {
-	value, err := strconv.Atoi(strings.TrimSpace(os.Getenv(key)))
-	if err != nil || value <= 0 {
-		return fallback
-	}
-	return value
-}
-
-func splitNonEmpty(raw string) []string {
-	parts := strings.Split(raw, ",")
-	result := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if trimmed := strings.TrimSpace(part); trimmed != "" {
-			result = append(result, trimmed)
-		}
-	}
-	return result
 }

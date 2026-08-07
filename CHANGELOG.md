@@ -10,6 +10,7 @@
 ### Changed
 - 导出可装配 `server` 包；依赖 `starcat-api-kit`。
 - `internal/github` 改为 kit 薄包装；`/api/v1/ping` 改用 kit httputil。
+- `server.FromEnv` 改用 kit `env`（含 `LookupCSV` / `Int`）。
 
 ## [Unreleased]
 
