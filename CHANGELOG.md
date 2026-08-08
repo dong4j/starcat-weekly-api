@@ -14,6 +14,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- 聚合 Wiki 通知：Wiki notifier 请求固定携带 `X-SC-Svc: wiki`，避免 loopback 请求被聚合网关拒绝分流
+
 ### Added
 - **AI Discovery v0.6 (2026-06-11)**：完成 Show HN 后端 API 与定时流水线。
   - 使用 Hacker News 官方 `/v0/showstories` + `/v0/item/{id}` API，支持从 `url` 和自发布 `text` 提取 GitHub 仓库。
