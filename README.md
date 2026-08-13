@@ -89,7 +89,8 @@ This project has completed the R-01 contract upgrade:
 - Collectors and manual imports write only batches and items within a SQLite transaction. After commit, they wake the background worker, which calls the GitHub API outside the transaction boundary.
 - The worker scans once at startup, processes immediately when it receives an in-memory signal, and performs a fallback scan every 15 minutes. Transient failures are retried with 15- and 30-minute backoff intervals, then removed after three failed attempts.
 - HelloGitHub supports incremental featured ingestion, monthly issue reconciliation, and resumable historical volume backfill. The backfill checkpoint is stored in the database.
-- `POST /internal/imports` accepts only fixed sources with `manual_import_enabled=true`; the initial release allows only `ai_intelligence`.
+- `POST /internal/imports` accepts every enabled source with `manual_import_enabled=true`. Administrators can create a manual source through `POST /internal/sources`; it is immediately available to subsequent imports.
+- Manual events use `manual:<source_code>:<owner/repo>` as their stable identity. Reimporting the same repository in the same source updates the existing event even when the title, source URL, or batch idempotency key changes; different sources stay independent.
 - Weekly supports multiple global pinned projects. The admin endpoint atomically replaces their order with the complete `gh_repo_ids` list.
 
 ### Safe Startup and Weekly Versions
@@ -206,6 +207,7 @@ All endpoints use `Authorization: Bearer <ADMIN_API_KEY>`:
 
 ```text
 GET  /internal/sources?manual_import=true
+POST /internal/sources
 POST /internal/sources/hellogithub/sync
 GET  /internal/ingest-batches/{batch_id}
 POST /internal/imports
@@ -215,7 +217,17 @@ GET  /internal/pins
 POST /internal/pins
 ```
 
-Example bulk import for AI intelligence. The endpoint persists the request before returning `202 Accepted`, and GitHub enrichment runs asynchronously:
+Create a manual source category (code must match `^[a-z][a-z0-9_]{1,31}$`):
+
+```json
+{
+  "code": "developer_tools",
+  "display_name_zh": "开发工具",
+  "display_name_en": "Developer Tools"
+}
+```
+
+Example bulk import. The endpoint persists the request before returning `202 Accepted`, and GitHub enrichment runs asynchronously:
 
 ```json
 {
