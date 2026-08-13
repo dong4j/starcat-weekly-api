@@ -5,7 +5,17 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.0.0] - 2026-08-07
+
+### Changed
+- 导出可装配 `server` 包；依赖 `starcat-api-kit`。
+- `internal/github` 改为 kit 薄包装；`/api/v1/ping` 改用 kit httputil。
+- `server.FromEnv` 改用 kit `env`（含 `LookupCSV` / `Int`）。
+
 ## [Unreleased]
+
+### Fixed
+- 聚合 Wiki 通知：Wiki notifier 请求固定携带 `X-SC-Svc: wiki`，避免 loopback 请求被聚合网关拒绝分流
 
 ### Added
 - **AI Discovery v0.6 (2026-06-11)**：完成 Show HN 后端 API 与定时流水线。

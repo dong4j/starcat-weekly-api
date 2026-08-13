@@ -112,6 +112,9 @@ func (n *WikiNotifier) sendBatch(fullNames []string) error {
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+n.apiKey)
+	// 聚合部署用同一 Host 承载六个 API；显式服务头确保请求进入 wiki，
+	// 独立部署的 wiki-api 会安全忽略该头。
+	req.Header.Set("X-SC-Svc", "wiki")
 
 	resp, err := n.client.Do(req)
 	if err != nil {
