@@ -94,7 +94,13 @@ func (s *Service) Enqueue(request model.EnqueueBatchRequest) (model.IngestBatchA
 			candidate.OccurredAt = now
 		}
 		if strings.TrimSpace(candidate.ExternalKey) == "" {
-			candidate.ExternalKey = fmt.Sprintf("%s:%s", request.IdempotencyKey, normalized)
+			if request.Kind == model.IngestKindManualImport {
+				// 人工来源的事实身份只由「来源 + 仓库」决定。即使维护者换了标题、
+				// 原始线索或 idempotency key，Worker 也只会更新同一来源事件。
+				candidate.ExternalKey = fmt.Sprintf("manual:%s:%s", request.SourceCode, normalized)
+			} else {
+				candidate.ExternalKey = fmt.Sprintf("%s:%s", request.IdempotencyKey, normalized)
+			}
 		}
 		// 人工情报按 repo 去重；Collector/Backfill 允许同一 repo 在同批拥有多个
 		// 不同 external event（例如同仓库多次 Show HN 投稿）。

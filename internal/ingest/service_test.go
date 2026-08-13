@@ -33,6 +33,30 @@ func TestEnqueueUsesDynamicManualSource(t *testing.T) {
 	}
 }
 
+func TestManualImportUsesStableSourceRepositoryEventKey(t *testing.T) {
+	repository, err := store.NewSQLiteStore(filepath.Join(t.TempDir(), "stable-manual-event.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repository.Close()
+	service := NewService(repository, NewWakeSignal())
+	service.newID = func() (string, error) { return "stable-event-batch", nil }
+	_, err = service.Enqueue(model.EnqueueBatchRequest{
+		SourceCode: model.SourceAIIntelligence, Kind: model.IngestKindManualImport,
+		IdempotencyKey: "clue-can-change", Candidates: []model.IngestCandidate{{Owner: "Acme", Repo: "Agent"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch, err := repository.GetIngestBatch("stable-event-batch", true)
+	if err != nil || batch == nil || len(batch.Items) != 1 {
+		t.Fatalf("batch=%#v err=%v", batch, err)
+	}
+	if batch.Items[0].ExternalKey != "manual:ai_intelligence:acme/agent" {
+		t.Fatalf("external_key=%q", batch.Items[0].ExternalKey)
+	}
+}
+
 func TestEnqueuePersistsDeduplicatedBatchThenWakes(t *testing.T) {
 	repository, err := store.NewSQLiteStore(filepath.Join(t.TempDir(), "ingest.db"))
 	if err != nil {
