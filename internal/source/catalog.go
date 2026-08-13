@@ -1,7 +1,7 @@
-// Package source 定义 Weekly 固定来源目录及采集能力边界。
+// Package source 定义 Weekly 内建采集来源及能力边界。
 //
-// 来源不是管理端可自由创建的数据。新增来源必须随代码发布，并同步完成客户端
-// 展示、运维入口和测试；这样 AI Skill 无法把任意字符串写成用户可见分类。
+// Crawler 来源仍必须随代码发布；管理员可通过受保护接口追加 manual 来源，
+// 但不能创建采集器或修改内建来源的能力位。
 package source
 
 import "github.com/starcat-app/starcat-weekly-api/internal/model"
@@ -11,7 +11,7 @@ const (
 	IngestModeManual  = "manual"
 )
 
-// Definition 是代码内固定来源的完整声明，也是 migration 初始化 source_catalog
+// Definition 是代码内内建来源的完整声明，也是 migration 初始化 source_catalog
 // 的单一来源。Enabled 表示公开 feed 可见，ManualImportEnabled 表示允许管理批量录入。
 type Definition struct {
 	Code                string

@@ -7,8 +7,31 @@ import (
 	"time"
 
 	"github.com/starcat-app/starcat-weekly-api/internal/model"
+	"github.com/starcat-app/starcat-weekly-api/internal/source"
 	"github.com/starcat-app/starcat-weekly-api/internal/store"
 )
+
+func TestEnqueueUsesDynamicManualSource(t *testing.T) {
+	repository, err := store.NewSQLiteStore(filepath.Join(t.TempDir(), "dynamic-source.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repository.Close()
+	if _, err := repository.CreateManualSource(model.ManualSourceInput{
+		Code: "developer_tools", DisplayNameZH: "开发工具", DisplayNameEN: "Developer Tools",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(repository, NewWakeSignal())
+	service.newID = func() (string, error) { return "dynamic-batch", nil }
+	_, err = service.Enqueue(model.EnqueueBatchRequest{
+		SourceCode: "developer_tools", Kind: model.IngestKindManualImport,
+		IdempotencyKey: "first-clue", Candidates: []model.IngestCandidate{{Owner: "acme", Repo: "agent"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestEnqueuePersistsDeduplicatedBatchThenWakes(t *testing.T) {
 	repository, err := store.NewSQLiteStore(filepath.Join(t.TempDir(), "ingest.db"))
@@ -133,4 +156,21 @@ type errorBatchRepository struct{ err error }
 
 func (r errorBatchRepository) EnqueueIngestBatch(model.EnqueueBatchRequest) (model.EnqueueBatchResult, error) {
 	return model.EnqueueBatchResult{}, r.err
+}
+
+func (r errorBatchRepository) GetSourceStatus(code string) (*model.SourceStatus, error) {
+	if r.err != nil {
+		return &model.SourceStatus{
+			SourceDescriptor: model.SourceDescriptor{Code: code},
+			Enabled:          true, ManualImportEnabled: true,
+		}, nil
+	}
+	definition, ok := source.Find(code)
+	if !ok {
+		return nil, nil
+	}
+	return &model.SourceStatus{
+		SourceDescriptor: model.SourceDescriptor{Code: definition.Code},
+		Enabled:          definition.Enabled, ManualImportEnabled: definition.ManualImportEnabled,
+	}, nil
 }

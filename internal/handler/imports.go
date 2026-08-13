@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/starcat-app/starcat-weekly-api/internal/ingest"
@@ -18,6 +19,7 @@ type importService interface {
 type importRepository interface {
 	GetIngestBatch(id string, includeItems bool) (*model.IngestBatch, error)
 	GetSourceStatuses(manualOnly bool) ([]model.SourceStatus, error)
+	CreateManualSource(input model.ManualSourceInput) (*model.SourceStatus, error)
 }
 
 type ImportsHandler struct {
@@ -40,6 +42,14 @@ type importRepositoryDTO struct {
 	Repo      string `json:"repo"`
 	Title     string `json:"title,omitempty"`
 	SourceURL string `json:"source_url,omitempty"`
+}
+
+var manualSourceCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{1,31}$`)
+
+type createManualSourceRequest struct {
+	Code          string `json:"code"`
+	DisplayNameZH string `json:"display_name_zh"`
+	DisplayNameEN string `json:"display_name_en"`
 }
 
 // HandleCreate 只持久化整批候选并返回 202；service 类型中没有 GitHub client，
@@ -104,4 +114,41 @@ func (h *ImportsHandler) HandleSources(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSONWithMeta(w, sources, &model.Meta{Total: len(sources)})
+}
+
+// HandleCreateSource 创建仅支持人工导入的来源分类。
+// 能力位与图标由服务端固定，客户端只提供稳定 code 和中英文名称。
+func (h *ImportsHandler) HandleCreateSource(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	var request createManualSourceRequest
+	if err := decoder.Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid JSON body", map[string]string{"error": err.Error()})
+		return
+	}
+	request.Code = strings.TrimSpace(request.Code)
+	request.DisplayNameZH = strings.TrimSpace(request.DisplayNameZH)
+	request.DisplayNameEN = strings.TrimSpace(request.DisplayNameEN)
+	if !manualSourceCodePattern.MatchString(request.Code) {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "code must match ^[a-z][a-z0-9_]{1,31}$", nil)
+		return
+	}
+	if request.DisplayNameZH == "" || request.DisplayNameEN == "" || len([]rune(request.DisplayNameZH)) > 40 || len([]rune(request.DisplayNameEN)) > 80 {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "display names are required and too long", nil)
+		return
+	}
+	created, err := h.repository.CreateManualSource(model.ManualSourceInput{
+		Code: request.Code, DisplayNameZH: request.DisplayNameZH, DisplayNameEN: request.DisplayNameEN,
+	})
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+			writeError(w, http.StatusConflict, "SOURCE_EXISTS", "source code already exists", nil)
+			return
+		}
+		log.Printf("[handler] create manual source: %v", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create source", nil)
+		return
+	}
+	writeJSONStatus(w, http.StatusCreated, created)
 }

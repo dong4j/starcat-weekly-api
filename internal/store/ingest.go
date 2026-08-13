@@ -173,7 +173,7 @@ func (s *SQLiteStore) getIngestItems(batchID string) ([]model.IngestItem, error)
 	return items, rows.Err()
 }
 
-// GetSourceStatuses 返回固定来源目录及持久化队列状态，供 Skill 能力发现和本地控制台复用。
+// GetSourceStatuses 返回来源目录及持久化队列状态，供 Skill 能力发现和本地控制台复用。
 func (s *SQLiteStore) GetSourceStatuses(manualOnly bool) ([]model.SourceStatus, error) {
 	query := `
 		SELECT code, display_name_zh, display_name_en, icon_key, ingest_mode,
@@ -271,4 +271,55 @@ func (s *SQLiteStore) GetSourceStatuses(manualOnly bool) ([]model.SourceStatus, 
 		}
 	}
 	return statuses, nil
+}
+
+// GetSourceStatus 返回单个来源的权限配置。Ingest Service 通过数据库查询而不是
+// 代码内固定目录做授权，因此管理员新建的人工分类可立即用于后续批量发布。
+func (s *SQLiteStore) GetSourceStatus(code string) (*model.SourceStatus, error) {
+	var item model.SourceStatus
+	var enabled, manual int
+	err := s.db.QueryRow(`
+		SELECT code, display_name_zh, display_name_en, icon_key, ingest_mode,
+		       sort_order, enabled, manual_import_enabled
+		FROM source_catalog WHERE code=?`, strings.TrimSpace(code)).Scan(
+		&item.Code, &item.DisplayNameZH, &item.DisplayNameEN, &item.IconKey,
+		&item.IngestMode, &item.SortOrder, &enabled, &manual,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	item.Enabled = enabled == 1
+	item.ManualImportEnabled = manual == 1
+	return &item, nil
+}
+
+// CreateManualSource 原子分配排序号并创建可立即导入的人工来源。
+// 图标使用 SF Symbol 的稳定通用值，避免把任意客户端字符串传播给所有用户。
+func (s *SQLiteStore) CreateManualSource(input model.ManualSourceInput) (*model.SourceStatus, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var sortOrder int
+	if err := tx.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) + 10 FROM source_catalog`).Scan(&sortOrder); err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := tx.Exec(`
+		INSERT INTO source_catalog(
+			code, display_name_zh, display_name_en, icon_key, ingest_mode,
+			sort_order, enabled, manual_import_enabled, created_at, updated_at
+		) VALUES (?, ?, ?, 'bookmark.fill', 'manual', ?, 1, 1, ?, ?)
+	`, input.Code, input.DisplayNameZH, input.DisplayNameEN, sortOrder, now, now); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.GetSourceStatus(input.Code)
 }

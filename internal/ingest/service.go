@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/starcat-app/starcat-weekly-api/internal/model"
-	"github.com/starcat-app/starcat-weekly-api/internal/source"
 )
 
 const maxBatchSize = 200
@@ -22,6 +21,7 @@ var (
 
 type batchRepository interface {
 	EnqueueIngestBatch(model.EnqueueBatchRequest) (model.EnqueueBatchResult, error)
+	GetSourceStatus(code string) (*model.SourceStatus, error)
 }
 
 // Service 负责来源权限、输入规范化、批内去重和 commit 后唤醒。
@@ -47,8 +47,11 @@ func NewService(repository batchRepository, wake *WakeSignal) *Service {
 }
 
 func (s *Service) Enqueue(request model.EnqueueBatchRequest) (model.IngestBatchAcceptance, error) {
-	definition, ok := source.Find(request.SourceCode)
-	if !ok || !definition.Enabled {
+	definition, err := s.repository.GetSourceStatus(request.SourceCode)
+	if err != nil {
+		return model.IngestBatchAcceptance{}, err
+	}
+	if definition == nil || !definition.Enabled {
 		return model.IngestBatchAcceptance{}, validationErrorf("source_code %q is not enabled", request.SourceCode)
 	}
 	if request.Kind == model.IngestKindManualImport && !definition.ManualImportEnabled {

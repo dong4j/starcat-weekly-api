@@ -101,6 +101,51 @@ func TestImportsHandlerListsManualSourcesAndReadsBatch(t *testing.T) {
 	}
 }
 
+func TestImportsHandlerCreatesManualSourceAndUsesItImmediately(t *testing.T) {
+	handler, _ := newImportsTestHandler(t)
+	body := []byte(`{"code":"developer_tools","display_name_zh":"开发工具","display_name_en":"Developer Tools"}`)
+	created := httptest.NewRecorder()
+	handler.HandleCreateSource(created, httptest.NewRequest(http.MethodPost, "/internal/sources", bytes.NewReader(body)))
+	if created.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", created.Code, created.Body.String())
+	}
+	var sourceEnvelope model.Envelope[model.SourceStatus]
+	if err := json.Unmarshal(created.Body.Bytes(), &sourceEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if sourceEnvelope.Data.Code != "developer_tools" || !sourceEnvelope.Data.ManualImportEnabled {
+		t.Fatalf("source=%#v", sourceEnvelope.Data)
+	}
+
+	importBody := []byte(`{"source_code":"developer_tools","idempotency_key":"tools-1","repositories":[{"owner":"acme","repo":"agent"}]}`)
+	accepted := httptest.NewRecorder()
+	handler.HandleCreate(accepted, httptest.NewRequest(http.MethodPost, "/internal/imports", bytes.NewReader(importBody)))
+	if accepted.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", accepted.Code, accepted.Body.String())
+	}
+
+	duplicate := httptest.NewRecorder()
+	handler.HandleCreateSource(duplicate, httptest.NewRequest(http.MethodPost, "/internal/sources", bytes.NewReader(body)))
+	if duplicate.Code != http.StatusConflict {
+		t.Fatalf("status=%d body=%s", duplicate.Code, duplicate.Body.String())
+	}
+}
+
+func TestImportsHandlerRejectsInvalidManualSource(t *testing.T) {
+	handler, _ := newImportsTestHandler(t)
+	for _, body := range [][]byte{
+		[]byte(`{"code":"AI News","display_name_zh":"AI","display_name_en":"AI"}`),
+		[]byte(`{"code":"ai_news","display_name_zh":"","display_name_en":"AI"}`),
+		[]byte(`{"code":"ai_news","display_name_zh":"AI","display_name_en":"AI","unknown":true}`),
+	} {
+		recorder := httptest.NewRecorder()
+		handler.HandleCreateSource(recorder, httptest.NewRequest(http.MethodPost, "/internal/sources", bytes.NewReader(body)))
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+		}
+	}
+}
+
 func TestImportsRouteRequiresAdminKey(t *testing.T) {
 	handler, _ := newImportsTestHandler(t)
 	auth := middleware.NewBearerAuth([]string{"admin-secret-key-123456"})

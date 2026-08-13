@@ -28,6 +28,14 @@ type SourceStatus struct {
 	ActiveBackfill      *IngestBatch `json:"active_backfill,omitempty"`
 }
 
+// ManualSourceInput 是管理员在发布台创建人工来源时允许写入的最小字段集合。
+// 服务端固定其 ingest mode、图标和权限位，避免客户端伪造 crawler 来源。
+type ManualSourceInput struct {
+	Code          string
+	DisplayNameZH string
+	DisplayNameEN string
+}
+
 // SourceEntry 是仓库在某个来源中的最新代表事件。
 // Payload 只承载来源专属补充字段，通用筛选不得依赖其中内容。
 type SourceEntry struct {
