@@ -30,7 +30,7 @@ jobs:
     steps:
       # workflow_run 模式下必须显式 checkout 触发 go.yml 的那个 commit
       # (默认 checkout 是当前 ref, 而非触发 workflow 的 commit, 错位会部署错代码)
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0
