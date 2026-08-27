@@ -295,6 +295,14 @@ These endpoints consume GitHub quota, so they do not accept regular `API_KEYS`.
 GET /healthz
 ```
 
+## Operations and Metrics
+
+- `GET /internal/stats` (API Key): repository, source-event, batch, queue, and freshness counts.
+- `GET /internal/ingest-batches?status=&limit=1..100` (Admin Key): bounded recent batch summaries without cursors or idempotency keys.
+- `GET /internal/metrics/{summary,timeseries,routes,status-codes}` (API Key): aggregate route traffic, errors, and latency.
+
+Metrics exclude credentials, queries, bodies, client addresses, and real path parameters.
+
 ## Technology Stack
 
 - **Go 1.23** — `net/http` standard library

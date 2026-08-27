@@ -276,6 +276,14 @@ Authorization: Bearer <ADMIN_API_KEY>
 GET /healthz
 ```
 
+## 运营与调用指标
+
+- `GET /internal/stats`（API Key）：仓库、来源事件、批次、队列和新鲜度统计。
+- `GET /internal/ingest-batches?status=&limit=1..100`（Admin Key）：受限近期批次摘要，不返回 cursor 或幂等键。
+- `GET /internal/metrics/{summary,timeseries,routes,status-codes}`（API Key）：路由调用量、错误与延迟聚合。
+
+指标不会保存凭据、查询串、请求体、客户端地址或真实路径参数。
+
 ## 技术栈
 
 - **Go 1.23** — `net/http` 标准库
