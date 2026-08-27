@@ -134,6 +134,7 @@ fly secrets set \
   ADMIN_API_KEYS="sk-starcat-adminKey1,..." \
   GITHUB_TOKENS="ghp_token1,ghp_token2" \
   STORE_FILE="/data/weekly.db" \
+  METRICS_STORE_FILE="/data/weekly-metrics.db" \
   REPO_DIR="/data/weekly-repo"
 
 fly deploy
@@ -145,6 +146,7 @@ fly deploy
 |------|------|
 | `PORT` | 服务端口（默认 5003） |
 | `STORE_FILE` | SQLite 数据库路径 |
+| `METRICS_STORE_FILE` | 独立请求指标 SQLite 路径 |
 | `REPO_DIR` | 周刊 git clone 存放路径 |
 | `API_KEYS` | 逗号分隔的 API Key 白名单（用于 Bearer 鉴权） |
 | `ADMIN_API_KEYS` | 来源同步、批量录入和置顶管理专用管理员 Key；不得随客户端分发 |
