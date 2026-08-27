@@ -14,6 +14,7 @@ import (
 	"time"
 
 	kitenv "github.com/starcat-app/starcat-api-kit/env"
+	kitmetrics "github.com/starcat-app/starcat-api-kit/metrics"
 	"github.com/starcat-app/starcat-weekly-api/internal/discovery"
 	"github.com/starcat-app/starcat-weekly-api/internal/github"
 	"github.com/starcat-app/starcat-weekly-api/internal/handler"
@@ -33,6 +34,7 @@ const defaultPort = "5003"
 type Options struct {
 	Port                   string
 	DBPath                 string
+	MetricsStoreFile       string
 	RepoDir                string
 	APIKeys                []string
 	AdminAPIKeys           []string
@@ -53,6 +55,7 @@ type Service struct {
 	store      store.Store
 	scheduler  *scheduler.Scheduler
 	stopWorker context.CancelFunc
+	metrics    *kitmetrics.Collector
 	closeOnce  sync.Once
 }
 
@@ -83,6 +86,7 @@ func FromEnv() (*Service, error) {
 	opt := Options{
 		Port:                 kitenv.OrDefault("PORT", defaultPort),
 		DBPath:               kitenv.OrDefault("STORE_FILE", "weekly.db"),
+		MetricsStoreFile:     kitenv.OrDefault("METRICS_STORE_FILE", "weekly-metrics.db"),
 		RepoDir:              kitenv.OrDefault("REPO_DIR", ".weekly-repo"),
 		APIKeys:              apiKeys,
 		AdminAPIKeys:         adminKeys,
@@ -102,6 +106,9 @@ func New(opt Options) (*Service, error) {
 	if strings.TrimSpace(opt.Port) == "" {
 		opt.Port = defaultPort
 	}
+	if strings.TrimSpace(opt.MetricsStoreFile) == "" {
+		opt.MetricsStoreFile = ":memory:"
+	}
 	if len(opt.APIKeys) == 0 {
 		return nil, fmt.Errorf("APIKeys is required")
 	}
@@ -120,6 +127,18 @@ func New(opt Options) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("initialize database: %w", err)
 	}
+	metricsStore, err := kitmetrics.OpenSQLite(opt.MetricsStoreFile)
+	if err != nil {
+		_ = s.Close()
+		return nil, fmt.Errorf("initialize metrics SQLite: %w", err)
+	}
+	metricsCollector, err := kitmetrics.NewCollector(kitmetrics.Config{Service: Name(), Store: metricsStore})
+	if err != nil {
+		_ = metricsStore.Close()
+		_ = s.Close()
+		return nil, fmt.Errorf("initialize metrics collector: %w", err)
+	}
+	metricsHandler := kitmetrics.NewHandler(Name(), metricsCollector.Store())
 
 	ghClient := github.NewClient(pool, github.NewRateLimitHandler(720*time.Millisecond)) // 5000/h ≈ 720ms
 	hnClient := discovery.NewHNClient(nil)
@@ -161,6 +180,11 @@ func New(opt Options) (*Service, error) {
 	mux.Handle("GET /api/v1/repos/bulk", authMW.Wrap(handler.HandleBulkV1(s, bulkCache)))
 	mux.Handle("GET /api/v1/repos/languages", authMW.Wrap(http.HandlerFunc(rh.HandleLanguagesV1)))
 	mux.Handle("GET /api/v1/repos/{gh_repo_id}", authMW.Wrap(http.HandlerFunc(rh.HandleDetailV1)))
+	mux.Handle("GET /internal/stats", authMW.Wrap(handler.HandleOperationalStats(s)))
+	mux.Handle("GET /internal/metrics/summary", authMW.Wrap(http.HandlerFunc(metricsHandler.HandleSummary)))
+	mux.Handle("GET /internal/metrics/timeseries", authMW.Wrap(http.HandlerFunc(metricsHandler.HandleTimeseries)))
+	mux.Handle("GET /internal/metrics/routes", authMW.Wrap(http.HandlerFunc(metricsHandler.HandleRoutes)))
+	mux.Handle("GET /internal/metrics/status-codes", authMW.Wrap(http.HandlerFunc(metricsHandler.HandleStatusCodes)))
 
 	mux.Handle("POST /internal/sync/weekly", adminAuthMW.Wrap(http.HandlerFunc(wh.HandleAdminSync)))
 	mux.Handle("POST /internal/sync/zread", adminAuthMW.Wrap(http.HandlerFunc(wh.HandleZreadSync)))
@@ -172,6 +196,7 @@ func New(opt Options) (*Service, error) {
 	mux.Handle("POST /internal/imports", adminAuthMW.Wrap(http.HandlerFunc(ih.HandleCreate)))
 	mux.Handle("GET /internal/imports/{batch_id}", adminAuthMW.Wrap(http.HandlerFunc(ih.HandleBatch)))
 	mux.Handle("GET /internal/ingest-batches/{batch_id}", adminAuthMW.Wrap(http.HandlerFunc(ih.HandleBatch)))
+	mux.Handle("GET /internal/ingest-batches", adminAuthMW.Wrap(handler.HandleRecentIngestBatches(s)))
 	mux.Handle("GET /internal/repos/search", adminAuthMW.Wrap(http.HandlerFunc(ph.HandleSearch)))
 	mux.Handle("GET /internal/pins", adminAuthMW.Wrap(http.HandlerFunc(ph.HandleList)))
 	mux.Handle("POST /internal/pins", adminAuthMW.Wrap(http.HandlerFunc(ph.HandleReplace)))
@@ -201,10 +226,11 @@ func New(opt Options) (*Service, error) {
 
 	return &Service{
 		opts:       opt,
-		handler:    middleware.CORS(mux),
+		handler:    metricsCollector.Wrap(middleware.CORS(mux)),
 		store:      s,
 		scheduler:  sch,
 		stopWorker: stopWorker,
+		metrics:    metricsCollector,
 	}, nil
 }
 
@@ -225,8 +251,13 @@ func (svc *Service) Close() error {
 		if svc.scheduler != nil {
 			svc.scheduler.Stop()
 		}
+		if svc.metrics != nil {
+			closeErr = svc.metrics.Close()
+		}
 		if svc.store != nil {
-			closeErr = svc.store.Close()
+			if err := svc.store.Close(); closeErr == nil {
+				closeErr = err
+			}
 		}
 	})
 	return closeErr

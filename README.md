@@ -142,6 +142,7 @@ fly secrets set \
   ADMIN_API_KEYS="sk-starcat-adminKey1,..." \
   GITHUB_TOKENS="ghp_token1,ghp_token2" \
   STORE_FILE="/data/weekly.db" \
+  METRICS_STORE_FILE="/data/weekly-metrics.db" \
   REPO_DIR="/data/weekly-repo"
 
 fly deploy
@@ -153,6 +154,7 @@ fly deploy
 |------|------|
 | `PORT` | Server port (default: 5003) |
 | `STORE_FILE` | SQLite database path |
+| `METRICS_STORE_FILE` | Dedicated request metrics SQLite path |
 | `REPO_DIR` | Path for the Weekly git clone |
 | `API_KEYS` | Comma-separated allowlist of API keys for Bearer authentication |
 | `ADMIN_API_KEYS` | Dedicated admin keys for source sync, bulk imports, and pin management; must never be distributed with the client |
@@ -292,6 +294,14 @@ These endpoints consume GitHub quota, so they do not accept regular `API_KEYS`.
 ```
 GET /healthz
 ```
+
+## Operations and Metrics
+
+- `GET /internal/stats` (API Key): repository, source-event, batch, queue, and freshness counts.
+- `GET /internal/ingest-batches?status=&limit=1..100` (Admin Key): bounded recent batch summaries without cursors or idempotency keys.
+- `GET /internal/metrics/{summary,timeseries,routes,status-codes}` (API Key): aggregate route traffic, errors, and latency.
+
+Metrics exclude credentials, queries, bodies, client addresses, and real path parameters.
 
 ## Technology Stack
 
